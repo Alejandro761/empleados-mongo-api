@@ -1,25 +1,27 @@
-# Empleados API
+# Empleados API — MongoDB
 
-API REST para administrar empleados, construida paso a paso en la Academia Java CDMX
-(Semana 3, del 24 al 26 de septiembre de 2026).
+API REST para administrar empleados, construida en la Academia Java CDMX: primero con **MySQL** (Semana 3, del
+24 al 26 de septiembre de 2026; está en la etiqueta `v1-mysql`) y después **migrada a MongoDB** (Semana 4, 28 y 29
+de septiembre).
 
 **Alumno:** Alejandro Elías Castañeda Ibarra
 
 ## Tecnologías
 
-Java 17 · Spring Boot 4.1.1 · Spring Data JPA (Hibernate) · Bean Validation · MySQL 8.4 en Docker ·
+Java 17 · Spring Boot 4.1.1 · Spring Data MongoDB · Bean Validation · MongoDB 8.2 y DbGate en Docker ·
 springdoc-openapi (Swagger) · WSL2 con Ubuntu 24.04
 
 ## Cómo levantarla
 
 ```bash
-docker compose up -d            # MySQL en Docker; espera a que docker compose ps diga (healthy)
+docker compose up -d            # MongoDB y DbGate; espera a que docker compose ps diga (healthy)
 ./mvnw spring-boot:run          # la API en http://localhost:8080
 ```
 
 - Swagger: http://localhost:8080/swagger-ui.html
-- Datos de ejemplo (30 empleados):
-  `docker exec -i empleados-mysql mysql --default-character-set=utf8mb4 -uacademia -pacademia123 empleados_db < datos/semilla-empleados.sql`
+- DbGate (ver los documentos): http://localhost:3000
+- Datos de ejemplo (30 empleados, una sola vez):
+  `docker exec -i empleados-mongo mongoimport --maintainInsertionOrder -u academia -p academia123 --authenticationDatabase admin -d empleados_db -c empleados < datos/semilla-empleados.json`
 
 ## Endpoints
 
@@ -30,24 +32,32 @@ docker compose up -d            # MySQL en Docker; espera a que docker compose p
 | POST | `/api/empleados` | Crea (201 + Location; 400 datos inválidos; 409 email repetido) |
 | PUT | `/api/empleados/{id}` | Modifica (200; 400; 404; 409) |
 | DELETE | `/api/empleados/{id}` | Borra (204; 404) |
-| GET | `/api/empleados/buscar?departamento=&texto=&activo=&salarioMinimo=&salarioMaximo=` | Búsqueda con filtros opcionales, por páginas |
+| GET | `/api/empleados/buscar?departamento=&texto=&activo=&salarioMinimo=&salarioMaximo=&ciudad=&habilidad=` | Búsqueda con filtros opcionales, sin importar acentos, por páginas |
 | GET | `/api/empleados/departamento/{departamento}` | Los de un departamento, por apellidos |
 | GET | `/api/empleados/salarios?minimo=&maximo=` | Los de un rango de salario, del mayor al menor |
+| GET | `/api/empleados/estadisticas/departamentos` | Por departamento: empleados, activos y salario promedio, mínimo y máximo (agregación) |
 
-## Arquitectura
+## De MySQL a MongoDB
 
-`EmpleadoController` (HTTP) → `EmpleadoService` (reglas) → `EmpleadoRepository` (Spring Data JPA) → MySQL.
-Los datos entran como `EmpleadoRequest` y salen como `EmpleadoResponse` / `PaginaResponse`; los errores
-salen como `ProblemDetail` desde `ManejadorErrores`.
+| | MySQL (`v1-mysql`) | MongoDB (ahora) |
+|---|---|---|
+| Dónde vive un empleado | una fila de la tabla `empleados` | un documento de la colección `empleados` |
+| id | `Long` consecutivo (1, 2, 3…) | `String`: un ObjectId de 24 caracteres |
+| Repositorio | `JpaRepository` + `@Query` JPQL | `MongoRepository` + `MongoTemplate`/`Criteria` |
+| Email único | `@Column(unique = true)` | `@Indexed(unique = true)` + `auto-index-creation` |
+| Dirección y habilidades | serían 2 tablas más y un JOIN | dentro del mismo documento |
+| Transacciones | `@Transactional` | no hay (un solo servidor); cada documento se guarda completo o nada |
+
+`git diff v1-mysql --stat` muestra exactamente qué archivos cambiaron.
 
 ## Evidencia
 
 | Día | Archivos |
 |---|---|
-| Jueves 24 — entorno | `evidencia/dia1/entorno.txt` · `compose-ps.txt` · `describe-empleados.txt` |
-| Viernes 25 — CRUD | `evidencia/dia2/crud.txt` · `mysql-select.txt` · `probar-crud.sh` |
-| Sábado 26 — búsquedas y paginación | `evidencia/dia3/busquedas.txt` · `persistencia.txt` · `probar-busquedas.sh` |
+| Semana 3 (MySQL) | `evidencia/dia1/` · `evidencia/dia2/` · `evidencia/dia3/` |
+| Lunes 28 — la migración | `evidencia/s4-dia1/crud.txt` · `mongo.txt` |
+| Martes 29 — lo que Mongo hace distinto | `evidencia/s4-dia2/comparacion.txt` · `busquedas.txt` · `mongo.txt` · `tipos-y-agregacion.txt` |
 
 ## Qué aprendí y qué me costó
 
-Aprendí a realizar un contenedor Docker para levantar un servidor de mysql y asi tener una base de datos dentro del proyecto sin las complicaciones de "en mi computadora si funcionaba" utilizando una imagen específica. Mediante un comando se creó una API con Spring Boot, con ello aprendí a desarrollar una API efectiva mediante un modelo de capas que separa el funcionamiento de la misma en carpetas y archivos. Aprendí a manejar las excepciones que se lanzan en el controlador. Aprendí el uso que tienen los DTOs: entendí la forma en que Spring maneja las paginaciones y como mapearla a una página personalizada por nosotros; de igual forma, se mapeo el modelo Empleado para enseñar o solicitar solo los datos necesarios. Lo que más me costó fue entender la paginación, ya que no entendí el objetivo del archivo PaginaResponse hasta que leí la función desde, la cual realiza un mapeo de Page (la paginación original utilizada en Spring) al record PaginaResponse, parecido al mapeo que se hace en EmpleadoResponse.
+Aprendí a crear dos contenedores en docker para mongoDB y dbgate, de esta forma se puede utilizar una base de datos no relacional y visualizarla en un entorno gráfico sin siquiera instalarlo nativamente en la computadora local. Aprendí a conectar una base de datos de mongoDB a una API de Spring Boot, asi como a definir la estructura de un documento (entidad) y de las consultas. Aprendí que en una base de datos nosql no existen como tal las relaciones, aqui se utilizan subdocumentos los cuales son documentos embebidos dentro del documentos principal. Lo que más me costó fue entender como definir la estrucutra de un subdocumento dentro de un documento y la consulta de agrupación por departamento, pero leyendo el código más a fondo y entendiendo el funcionamiento de cada función comprendí cada aspecto de la consulta.
